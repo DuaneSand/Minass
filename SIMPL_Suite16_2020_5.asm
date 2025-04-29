@@ -1344,7 +1344,7 @@ _z:
 		
 ; Message definitions
 ;
-.MSFIRST
+;.MSFIRST
 hello_msg		.WORD	"Suite16 Hex Loader", eos
 error_msg		.WORD	"Checksum error", eos
 invalid_msg		.WORD	"Invalid record type", eos
@@ -1354,8 +1354,8 @@ done_msg		.WORD	"Done loading", eos
 ; 
 ;
 	
-.MSFIRST
+;.MSFIRST
 cr				.WORD $0d	; carriage return
 lf				.WORD $0a	; line feed
 space			.WORD $20	; space
-.end	
+;.end	

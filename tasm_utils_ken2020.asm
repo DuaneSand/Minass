@@ -10,7 +10,7 @@
 
 EOS:         .EQU    $0000  ;End of string
 
-.org $0000
+	.org $0000
 start:
 
     NOP                     ; Leave this location free for possible branch
@@ -300,5 +300,4 @@ CRLF:					; Output a CRLF
 	OUT
 	RET
 	
-	
-.end	
+; .END 
