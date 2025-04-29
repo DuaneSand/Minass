@@ -1,4 +1,4 @@
-# MINASS: A Minimal Assembler in Python3 for Ken Boak's old 2020 Suite-16 CPU
+# MINASS: A Minimal Assembler in Python3 for Ken Boak's new 2025 Suite16 CPU
 # (c) 2025 Duane Sand, MIT license applies
 
 # Input file passed in using shell's <filename option
@@ -29,29 +29,31 @@ def stuff_ops(format, oplist):
 # Instruction formats give the bit-packing of instruction words
 #   and the allowed source forms of expected instruction operands
 #   for now, use arbitary names for the formats  
-f1 = 1  # primary opcode, reg, 2nd iword
-f2 = 2  # primary opcode, reg 
-f3 = 3  # secondary opcode, 2nd iword
-f4 = 4  # secondary opcode, branch target small val (should become PC-rel)
-f5 = 5  # secondary opcode, small val
-f6 = 6  # secondary opcode, no arg
-f7 = 7  # pseudo instructions
+f1 = 1  # primary opcode,   mem/lit/Rn@+disp arg, possibly two iwords
+f2 = 2  # secondary opcode, mem/Rn arg, single iword
+f3 = 3  # secondary opcode, no  arg, single iword
+f4 = 4  # secondary opcode, mem arg, two iwords
+f5 = 5  # pseudo instructions
 
 def build_optable():
   global opshift
   opshift = 12  # instructions decoded by 4-bit primary opcode field
-  stuff_ops(f1, (           'SET', 1))
-  stuff_ops(f2, (                      'ld' , 2,  'st' , 3,  'LD@', 4,  'ST@', 5,  'PUSH',6,  'POP', 7,
-                 'AND', 8,  'OR' , 9,  'ADD',10,  'SUB',11,  'INV',12,  'DEC',13,  'INC',14,  'XOR',15))
+  stuff_ops(f1, (           'SET', 1,  'st',  2,  'ST@', 3,  
+                 'PUSH',4,  'INV', 5,  'DEC', 6,  'INC', 7,
+                 'ld' , 8,  'LD@', 9,  'POP',10,  'ADD',11,
+                 'SUB',12,  'AND',13,  'OR' ,14,  'XOR',15))
+
   opshift = 8  # instructions decoded by secondary 4-bit opcode field, primary == 0
-  stuff_ops(f3, (                                                                             'JMP', 7,
+  stuff_ops(f2, ('BRA', 0,  'BGT', 1,  'BLT', 2,  'BGE', 3,
+                 'BLE', 4,  'BNE', 5,  'BEQ', 6,
+                                       'ADI',10,  'SBI',11))
+  stuff_ops(f3, (           'RET', 9,  
+                 'OUT',12,  'IN', 13,  'JMP@',14, 'NOP',15)) 
+  stuff_ops(f4, (                                 'JMP', 7,
                  'CALL',8))
-  stuff_ops(f3, ('call',8))  ## lowercase alias just for this one habit
-  stuff_ops(f4, ('BRA', 0,  'BGT', 1,  'BLT', 2,  'BGE', 3, 'BLE', 4,  'BNE', 5,  'BEQ', 6,           ))
-  stuff_ops(f5, (                      'ADI',10,  'SBI',11))
-  stuff_ops(f6, (           'RET', 9,                         'OUT',12,  'IN' ,13,            'NOP',15))
+  stuff_ops(f4, ('call',8))  # lowercase alias just for this one opcode
   # special macros with another arg naming explicit R0, and optional @ on other arg rather than on opcode
-  stuff_ops(f7, ('LD',  0,  'ST',  0))
+  stuff_ops(f5, ('LD',  0,  'ST',  0))
   
 def predefined_names():
   # Registers R0..R15 can be accessed as memory locations
@@ -225,6 +227,32 @@ def equ_directive():
    if not current_label:  error('Missing label')
    labels[current_label] = val # overrides usual code_addr value
 
+def format1_variants():
+   global scan
+   if scan[0] == ',':  # long-address two-iword version
+      # Pass1 needs syntactic hint for uses of fwd-ref far labels
+      scan = scan[1:]  # don't allow spaces here
+      val = scan_operand()
+      emit448(basebits, 15, 0)
+      emit(val)
+   else:  # one-iword versions
+      val = scan_operand()
+      if scan[0] == '@':  # offset relative to dynamic reg value
+         scan = scan[1:]
+         rn = val
+         displ = 0
+         operator = scan[0]
+         if operator == '+' or operator == '-':
+            scan = scan[1:]
+            displ = scan_operand()
+            if operator == '-':  displ = -displ
+         if pass2 and not (1 <= rn <= 14):
+            error('Register-relative addressing works only for R1..R14') 
+         emit448(basebits, rn, displ&0xff)
+      else: # direct address
+         val = scan_operand()
+         emit448(basebits, 0, val)
+
 def instr_line():
    name = scan_name(allow_at=True)
    if name not in opTable:
@@ -232,33 +260,22 @@ def instr_line():
    format,basebits = opTable[name]
    skip_whitespace()
 
-   if format == f1:  
-      # SET rn, bigval
-      rn = scan_reg()
-      comma() 
+   if format == f1:  # mem/lit/Rn@+disp arg, possibly two iwords
+      # SET ST ST@ PUSH INV DEC INC LD LD@ POP ADD SUB AND OR XOR
+      format1_variants()
+   elif format == f2:  # simple label or lit arg
+      # BRA BGT BLT BGE BLE BNE BEQ ADI SBI
       val = scan_operand()
-      emit448(basebits, rn, 0)
-      emit(val) 
-   elif format == f2:  # primary opcode, rn, no val, single iword
-      # LD ST LD@ ST@ PUSH POP AND OR ADD SUB INV DCR INC XOR
-      rn = scan_reg()
-      emit448(basebits, rn, 0)
-   elif format == f3:  # secondary opcode, bigval
-      val = scan_operand()
-      emit448(basebits, 0, 0)
+      emit448(basebits, 0, val)
+   elif format == f3:  # no arg
+      # RET OUT IN JMP@ NOP
+      emit(basebits)
+   elif format == f4:  # mem arg, two iwords
+      # JMP CALL
+      val =  scan_operand()
+      emit(basebits)
       emit(val)
-   elif format == f4:  # secondary opcode, (not PC-relative!) smallval
-      # BGT BLT BNE BEQ BGE BLT BRA
-      val = scan_operand()
-      emit448(basebits, 0, val)
-   elif format == f5:  # secondary opcode, smallval
-      # ADI SBI
-      val = scan_operand()
-      emit448(basebits, 0, val)
-   elif format == f6:  # secondary opcode, no arg
-      # RET IN OUT NOP
-      emit448(basebits, 0, 0)
-   else:  # format f7, special macros
+   else:  # format f5, special macros
       # LD ST with two reg args, mapping onto ld st LD@ or ST@
       if name == 'LD':
          r0 = scan_reg()
@@ -266,14 +283,14 @@ def instr_line():
          comma()
          ind = atsign()
          rn = scan_reg()
-         opnum = 4 if ind else 2  # LD@ or ld
+         opnum = 9 if ind else 8  # LD@ or ld
       else: # 'ST'
           ind = atsign()
           rn = scan_reg()
           comma()
           r0 = scan_reg()
           if r0 != 0:  error('ST source reg must be R0')
-          opnum = 5 if ind else 3  # ST@ or st
+          opnum = 3 if ind else 2  # ST@ or st
       emit448(opnum<<12, rn, 0)
    skip_whitespace()
 
