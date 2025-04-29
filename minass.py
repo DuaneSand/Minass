@@ -14,17 +14,19 @@ codemem = {}       # nonblank 16-bit memory cells in final program, indexed by r
 code_addr = 0      # current runtime address of next empty cell
 current_label = '' # label on current line, if any
 pass2 = False      # differences between pass1 and pass2 processing
-opshift = 0        # used only during setup
 
 lineno = 0   
 line = '\n'  # current source line with trailing newline, unmodified
 scan = line  # remainder of current source line with trailing newline
 
-def stuff_ops(format, oplist):
-  for i in range(0, len(oplist), 2):
-     opname = oplist[i]; opnum = oplist[i+1]
-     assert opname not in opTable
-     opTable[opname] = (format, opnum << opshift)
+def oprow(opshift, format, oplist):
+   # unpack opcodes from textual matrix form
+   pairs = oplist.split()  # deblank
+   for i in range(0, len(pairs), 2):
+      # each text pair has the opcode as a naked hex number followed by its mnemonic
+      opnum = int(pairs[i], 16);  opname = pairs[i+1]
+      assert opname not in opTable
+      opTable[opname] = (format, opnum << opshift)
 
 # Instruction formats give the bit-packing of instruction words
 #   and the allowed source forms of expected instruction operands
@@ -36,24 +38,18 @@ f4 = 4  # secondary opcode, mem arg, two iwords
 f5 = 5  # pseudo instructions
 
 def build_optable():
-  global opshift
-  opshift = 12  # instructions decoded by 4-bit primary opcode field
-  stuff_ops(f1, (           'SET', 1,  'st',  2,  'ST@', 3,  
-                 'PUSH',4,  'INV', 5,  'DEC', 6,  'INC', 7,
-                 'ld' , 8,  'LD@', 9,  'POP',10,  'ADD',11,
-                 'SUB',12,  'AND',13,  'OR' ,14,  'XOR',15))
+  # primary opcodes:
+  oprow(12, f1, '        1 SET   2 st    3 ST@   4 PUSH  5 INV   6 DEC   7 INC ')
+  oprow(12, f1, '8 ld    9 LD@   a POP   b ADD   c SUB   d AND   e OR    f XOR ')
+  # secondary opcodes:
+  oprow( 8, f2, '0 BRA   1 BGT   2 BLT   3 BGE   4 BLE   5 BNE   6 BEQ         ')
+  oprow( 8, f2, '                a ADI   b SBI                                 ')
+  oprow( 8, f3, '        9 RET                   c OUT   d IN    e JMP@  f NOP ')
+  oprow( 8, f4, '                                                        7 JMP ')
+  oprow( 8, f4, '8 CALL                                                        ')
 
-  opshift = 8  # instructions decoded by secondary 4-bit opcode field, primary == 0
-  stuff_ops(f2, ('BRA', 0,  'BGT', 1,  'BLT', 2,  'BGE', 3,
-                 'BLE', 4,  'BNE', 5,  'BEQ', 6,
-                                       'ADI',10,  'SBI',11))
-  stuff_ops(f3, (           'RET', 9,  
-                 'OUT',12,  'IN', 13,  'JMP@',14, 'NOP',15)) 
-  stuff_ops(f4, (                                 'JMP', 7,
-                 'CALL',8))
-  stuff_ops(f4, ('call',8))  # lowercase alias just for this one opcode
-  # special macros with another arg naming explicit R0, and optional @ on other arg rather than on opcode
-  stuff_ops(f5, ('LD',  0,  'ST',  0))
+  oprow( 0, f5, '0 LD    0 ST  ')    # special macros with funky args
+  opTable['call'] = opTable['CALL']  # one lowercase alias                               
   
 def predefined_names():
   # Registers R0..R15 can be accessed as memory locations
